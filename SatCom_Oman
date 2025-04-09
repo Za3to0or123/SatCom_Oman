@@ -1,0 +1,74 @@
+%% Create a new Simulink model
+model = 'SatCom_Oman';
+new_system(model);
+open_system(model);
+
+%% Add Transmitter Blocks
+% Use 'Communications Toolbox' for Random Integer Generator
+add_block('comm_sources/Random Integer Generator', [model '/Random Bits'], ...
+    'M', '2', 'OutDataTypeStr', 'uint8', 'SampleTime', '1e-6');
+
+% LDPC Encoder (requires Communications Toolbox)
+add_block('commcnvcod2/LDPC Encoder', [model '/LDPC Encoder'], ...
+    'Standard', 'DVB-S.2', 'Rate', '1/2');
+
+% QPSK Modulator (correct path)
+add_block('commdigbbndpm3/QPSK Modulator Baseband', [model '/QPSK Modulator'], ...
+    'PhaseOffset', 'pi/4', 'OutputType', 'Bit');
+
+%% Add Uplink Channel (Free Space + Rain + AWGN)
+% Custom MATLAB Function for FSPL
+add_block('simulink/User-Defined Functions/MATLAB Function', [model '/FSPL'], ...
+    'FunctionName', 'fspl_calc');
+set_param([model '/FSPL'], 'Position', [300, 100, 400, 150]);
+
+% Rain Attenuation (simplified as a fixed gain block)
+add_block('simulink/Math Operations/Gain', [model '/Rain Attenuation'], ...
+    'Gain', '0.5');  % Represents 0.5 dB loss
+
+% AWGN Channel (correct path)
+add_block('commchan/AWGN Channel', [model '/AWGN Uplink'], ...
+    'SNR', '7.8', 'InputSigPower', '1');
+
+%% Add Satellite Transponder
+% Bandpass Filter (correct path)
+add_block('dsparch4/Digital Filter Design', [model '/Bandpass Filter'], ...
+    'FilterStructure', 'Direct-Form FIR', 'Specification', 'Passband/Stopband frequencies');
+
+% High-Power Amplifier (HPA) - Nonlinearity model
+add_block('simrf/Amplifiers/General Amplifier', [model '/HPA'], ...
+    'Nonlinearity', 'Rapp model', 'Smoothness', '3');
+
+%% Add Downlink Channel
+add_block('commchan/AWGN Channel', [model '/AWGN Downlink'], ...
+    'SNR', '8.9', 'InputSigPower', '1');
+
+%% Add Receiver Blocks
+% QPSK Demodulator (correct path)
+add_block('commdigbbndpm3/QPSK Demodulator Baseband', [model '/QPSK Demodulator'], ...
+    'PhaseOffset', 'pi/4', 'OutputType', 'Bit');
+
+% LDPC Decoder (correct path)
+add_block('commcnvcod2/LDPC Decoder', [model '/LDPC Decoder'], ...
+    'Standard', 'DVB-S.2', 'Rate', '1/2');
+
+% BER Calculation (correct path)
+add_block('commblks/Error Rate Calculation', [model '/BER'], ...
+    'ReceiveDelay', '0', 'ComputationDelay', '0');
+
+%% Connect All Blocks
+add_line(model, 'Random Bits/1', 'LDPC Encoder/1');
+add_line(model, 'LDPC Encoder/1', 'QPSK Modulator/1');
+add_line(model, 'QPSK Modulator/1', 'FSPL/1');
+add_line(model, 'FSPL/1', 'Rain Attenuation/1');
+add_line(model, 'Rain Attenuation/1', 'AWGN Uplink/1');
+add_line(model, 'AWGN Uplink/1', 'Bandpass Filter/1');
+add_line(model, 'Bandpass Filter/1', 'HPA/1');
+add_line(model, 'HPA/1', 'AWGN Downlink/1');
+add_line(model, 'AWGN Downlink/1', 'QPSK Demodulator/1');
+add_line(model, 'QPSK Demodulator/1', 'LDPC Decoder/1');
+add_line(model, 'LDPC Decoder/1', 'BER/1');
+
+%% Save and Export Model
+save_system(model);
+disp(['Simulink model saved as: ' model '.slx']);
